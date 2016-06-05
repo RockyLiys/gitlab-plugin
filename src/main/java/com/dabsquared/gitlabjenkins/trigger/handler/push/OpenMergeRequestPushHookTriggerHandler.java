@@ -18,21 +18,30 @@ import hudson.model.CauseAction;
 import hudson.model.Job;
 import jenkins.model.ParameterizedJobMixIn;
 
+import javax.servlet.ServletException;
 import javax.ws.rs.ProcessingException;
 import javax.ws.rs.WebApplicationException;
 import javax.ws.rs.core.GenericType;
 import javax.ws.rs.core.Response;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import static com.dabsquared.gitlabjenkins.cause.CauseDataBuilder.causeData;
+import jenkins.model.Jenkins;
+import hudson.model.Queue;
+import hudson.model.Queue.Item;
+
+import org.apache.commons.lang.StringUtils;
+import org.kohsuke.stapler.HttpResponse;
 
 /**
  * @author Robin Müller
  */
-class OpenMergeRequestPushHookTriggerHandler implements PushHookTriggerHandler {
+class
+OpenMergeRequestPushHookTriggerHandler implements PushHookTriggerHandler {
 
     private final static Logger LOGGER = Logger.getLogger(OpenMergeRequestPushHookTriggerHandler.class.getName());
 
@@ -119,7 +128,53 @@ class OpenMergeRequestPushHookTriggerHandler implements PushHookTriggerHandler {
                 .build();
     }
 
+
+    private void cancelScheduleJob(final Job<?, ?> job, final Action newAction) {
+
+        LOGGER.log(Level.INFO, String.format("Checking if a job named %s already exists.", job.getName()));
+        final Queue queue = Jenkins.getInstance().getQueue();
+        final Item[] items = queue.getItems();
+
+        for (final Item currentItem: items) {
+
+            if (currentItem == null) {
+                // skip this item
+                LOGGER.log(Level.INFO, String.format("No item with ID %d found.", currentItem.getId()));
+                continue;
+            }
+
+            final List<? extends Action> allActions = currentItem.getAllActions();
+            LOGGER.log(Level.INFO, String.format("%d actions for job scheduled.", allActions.size()));
+            for (int i=0; i < allActions.size(); ++i) {
+                final Action action = allActions.get(i);
+                LOGGER.log(Level.INFO, String.format("Action url %s and class name: %s and display name: %s", action.getUrlName(), action.getClass(), action.getDisplayName()));
+            }
+
+            LOGGER.log(Level.INFO, String.format("NEW Action has url %s, class name: %s and display name: %s", newAction.getUrlName(), newAction.getClass(), newAction.getDisplayName()));
+
+            // check for equal job
+            if (StringUtils.equals(currentItem.task.getName(), job.getName())) {
+                LOGGER.log(Level.INFO, String.format("Job found with name: %s", job.getName()));
+                if (!currentItem.hasCancelPermission()) {
+                    LOGGER.log(Level.INFO, String.format("No permission to cancel job %s"), job.getName());
+                    continue;
+                }
+                try {
+                    LOGGER.log(Level.INFO, String.format("Cancelling scheduled build job '%s'", job.getName()));
+                    final HttpResponse response = queue.doCancelItem(currentItem.getId());
+                } catch (IOException e) {
+                    LOGGER.log(Level.INFO, String.format("Exception during job cancellation: %s", e.getMessage()));
+                } catch (ServletException e) {
+                    LOGGER.log(Level.INFO, String.format("Exception during job cancellation: %s", e.getMessage()));
+                }
+            }
+        }
+    }
+
     private void scheduleBuild(Job<?, ?> job, Action action) {
+
+        cancelScheduleJob(job, action);
+
         int projectBuildDelay = 0;
         if (job instanceof ParameterizedJobMixIn.ParameterizedJob) {
             ParameterizedJobMixIn.ParameterizedJob abstractProject = (ParameterizedJobMixIn.ParameterizedJob) job;

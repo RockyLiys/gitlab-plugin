@@ -1,20 +1,39 @@
 package com.dabsquared.gitlabjenkins.trigger.handler;
 
+import com.dabsquared.gitlabjenkins.GitLabPushTrigger;
 import com.dabsquared.gitlabjenkins.cause.CauseData;
 import com.dabsquared.gitlabjenkins.cause.GitLabWebHookCause;
 import com.dabsquared.gitlabjenkins.gitlab.hook.model.WebHook;
 import com.dabsquared.gitlabjenkins.trigger.exception.NoRevisionToBuildException;
 import com.dabsquared.gitlabjenkins.trigger.filter.BranchFilter;
 import com.dabsquared.gitlabjenkins.util.LoggerUtil;
+import com.dabsquared.gitlabjenkins.webhook.GitLabWebHook;
+import com.dabsquared.gitlabjenkins.webhook.WebHookAction;
 import hudson.model.Action;
+import hudson.model.Cause;
 import hudson.model.CauseAction;
 import hudson.model.Job;
+import hudson.model.Queue;
+import hudson.model.Queue.Item;
 import hudson.plugins.git.RevisionParameterAction;
+import hudson.triggers.SCMTrigger;
+import hudson.triggers.Trigger;
+import hudson.triggers.TriggerDescriptor;
+import jenkins.model.Jenkins;
 import jenkins.model.ParameterizedJobMixIn;
+import jenkins.model.ParameterizedJobMixIn.ParameterizedJob;
+import org.apache.commons.lang.StringUtils;
 import org.eclipse.jgit.transport.URIish;
+import org.kohsuke.stapler.HttpResponse;
 
+import javax.servlet.ServletException;
+import java.io.IOException;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -74,10 +93,82 @@ public abstract class AbstractWebHookTriggerHandler<H extends WebHook> implement
         return null;
     }
 
+    private CauseData findCauseData(final List<? extends Action> actions) {
+        for (final Action action: actions) {
+            if (action instanceof CauseAction) {
+                final CauseAction causeAction = (CauseAction) action;
+                final GitLabWebHookCause webHookCause = causeAction.findCause(GitLabWebHookCause.class);
+                return webHookCause.getData();
+            }
+        }
+        return null;
+    }
+
+    private void cancelScheduleJob(final Job<?, ?> job, final Action[] newActions) {
+
+        LOGGER.log(Level.INFO, String.format("Checking if a job named %s already exists.", job.getName()));
+        final Queue queue = Jenkins.getInstance().getQueue();
+        final Item[] items = queue.getItems();
+
+        for (final Item currentItem: items) {
+
+            if (currentItem == null) {
+                // skip this item
+                LOGGER.log(Level.INFO, String.format("No item with ID %d found.", currentItem.getId()));
+                continue;
+            }
+
+            if (!StringUtils.equals(currentItem.task.getName(), job.getName())) {
+                    // skip other jobs
+                    LOGGER.log(Level.INFO, String.format("Job '%s' is not the target one.", currentItem.task.getName()));
+                    continue;
+            }
+
+            // retrieve cause data, if existing
+            final List<Action> actionList = new ArrayList<Action>(Arrays.asList(newActions));
+            final CauseData theCauseData = findCauseData(actionList);
+            if (theCauseData == null) {
+                LOGGER.log(Level.INFO, String.format("No cause data for job %s data found.", job.getName()));
+                continue;
+            }
+
+            final List<? extends Action> allActions = currentItem.getAllActions();
+            LOGGER.log(Level.INFO, String.format("%d actions for job scheduled.", allActions.size()));
+            final CauseData oldCauseData = findCauseData(allActions);
+
+            if (!theCauseData.equals(oldCauseData)) {
+                LOGGER.log(Level.INFO, "CauseData are not equal");
+            }
+
+            if (!StringUtils.equals(theCauseData.getBranch(), oldCauseData.getBranch())) {
+                LOGGER.log(Level.INFO, "CauseData contain different branches");
+                continue;
+            }
+
+            if (!StringUtils.equals(theCauseData.getSourceBranch(), oldCauseData.getSourceBranch())) {
+                LOGGER.log(Level.INFO, "CauseData contain different source branches");
+                continue;
+            }
+
+            try {
+                LOGGER.log(Level.INFO, String.format("Cancelling scheduled build job '%s'", job.getName()));
+                final HttpResponse response = queue.doCancelItem(currentItem.getId());
+            } catch (IOException e) {
+                LOGGER.log(Level.INFO, String.format("Exception during job cancellation: %s", e.getMessage()));
+            } catch (ServletException e) {
+                LOGGER.log(Level.INFO, String.format("Exception during job cancellation: %s", e.getMessage()));
+            }
+        }
+    }
+
     private void scheduleBuild(Job<?, ?> job, Action[] actions) {
+
+        LOGGER.log(Level.INFO, "Searching for existing job to cancel.");
+        cancelScheduleJob(job, actions);
+
         int projectBuildDelay = 0;
-        if (job instanceof ParameterizedJobMixIn.ParameterizedJob) {
-            ParameterizedJobMixIn.ParameterizedJob abstractProject = (ParameterizedJobMixIn.ParameterizedJob) job;
+        if (job instanceof ParameterizedJob) {
+            ParameterizedJob abstractProject = (ParameterizedJob) job;
             if (abstractProject.getQuietPeriod() > projectBuildDelay) {
                 projectBuildDelay = abstractProject.getQuietPeriod();
             }
