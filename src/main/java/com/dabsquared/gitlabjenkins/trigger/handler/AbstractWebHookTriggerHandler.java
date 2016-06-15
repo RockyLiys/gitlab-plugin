@@ -37,6 +37,8 @@ import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 /**
  * @author Robin Müller
  */
@@ -104,6 +106,53 @@ public abstract class AbstractWebHookTriggerHandler<H extends WebHook> implement
         return null;
     }
 
+    private static boolean equals(final CauseData cd1, final CauseData cd2) {
+        if (!cd1.getActionType().equals(cd2)) {
+            LOGGER.log(Level.INFO, "action type");
+        }
+
+        if (cd1.getProjectId() != cd2.getProjectId()) {
+            LOGGER.log(Level.INFO, "project id");
+        }
+
+        if (!cd1.getBranch().equals(cd2.getBranch())) {
+            LOGGER.log(Level.INFO, "branch");
+        }
+
+
+        if (!cd1.getSourceBranch().equals(cd2.getSourceBranch()) {
+            LOGGER.log(Level.INFO, "source branch");
+        }
+
+        if (!cd1.getUserName().equals(cd2.getUserName())) {
+            LOGGER.log(Level.INFO, "user name");
+        }
+
+        if (!cd1.getUserEmail().equals(cd2.getUserEmail())) {
+            LOGGER.log(Level.INFO, "user name");
+        }
+
+        if (!cd1.getSourceRepoHomepage().equals(cd2.getSourceRepoHomepage())) {
+            LOGGER.log(Level.INFO, "sourceRepoHomepage");
+        }
+
+        this.sourceRepoName = checkNotNull(sourceRepoName, "sourceRepoName must not be null.");
+        this.sourceNamespace = checkNotNull(sourceNamespace, "sourceNamespace must not be null.");
+        this.sourceRepoUrl = sourceRepoUrl == null ? sourceRepoSshUrl : sourceRepoUrl;
+        this.sourceRepoSshUrl = checkNotNull(sourceRepoSshUrl, "sourceRepoSshUrl must not be null.");
+        this.sourceRepoHttpUrl = checkNotNull(sourceRepoHttpUrl, "sourceRepoHttpUrl must not be null.");
+        this.mergeRequestTitle = checkNotNull(mergeRequestTitle, "mergeRequestTitle must not be null.");
+        this.mergeRequestDescription = mergeRequestDescription == null ? "" : mergeRequestDescription;
+        this.mergeRequestId = mergeRequestId;
+        this.mergeRequestIid = mergeRequestIid;
+        this.targetBranch = checkNotNull(targetBranch, "targetBranch must not be null.");
+        this.targetRepoName = checkNotNull(targetRepoName, "targetRepoName must not be null.");
+        this.targetNamespace = checkNotNull(targetNamespace, "targetNamespace must not be null.");
+        this.targetRepoSshUrl = checkNotNull(targetRepoSshUrl, "targetRepoSshUrl must not be null.");
+        this.targetRepoHttpUrl = checkNotNull(targetRepoHttpUrl, "targetRepoHttpUrl must not be null.");
+        this.triggeredByUser = checkNotNull(triggeredByUser, "triggeredByUser must not be null.");
+    }
+
     private void cancelScheduleJob(final Job<?, ?> job, final Action[] newActions) {
 
         LOGGER.log(Level.INFO, String.format("Checking if a job named %s already exists.", job.getName()));
@@ -135,6 +184,11 @@ public abstract class AbstractWebHookTriggerHandler<H extends WebHook> implement
             final List<? extends Action> allActions = currentItem.getAllActions();
             LOGGER.log(Level.INFO, String.format("%d actions for job scheduled.", allActions.size()));
             final CauseData oldCauseData = findCauseData(allActions);
+            if (theCauseData == null) {
+                LOGGER.log(Level.INFO, "No cause data for the current job found");
+            }
+
+            equals(oldCauseData, theCauseData);
 
             if (!theCauseData.equals(oldCauseData)) {
                 LOGGER.log(Level.INFO, "CauseData are not equal");
